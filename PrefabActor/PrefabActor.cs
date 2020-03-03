@@ -44,11 +44,11 @@ namespace PrefabActor
       try
       {
         this.RegisterReminderAsync(reminderName: "WakeUpActor", state: null, dueTime: TimeSpan.FromSeconds(30), period: TimeSpan.FromSeconds(10));
-        ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}Reminder successfully registered");
+        ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}{this.Id} Reminder successfully registered");
       }
       catch (Exception ex)
       {
-        ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}RegisterReminderAsync failed: {ex.GetBaseException().Message}");
+        ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}{this.Id} RegisterReminderAsync failed: {ex.GetBaseException().Message}");
       }
 
       return Task.CompletedTask;
