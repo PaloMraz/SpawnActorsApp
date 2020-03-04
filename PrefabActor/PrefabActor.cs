@@ -7,6 +7,7 @@ using Microsoft.ServiceFabric.Actors;
 using Microsoft.ServiceFabric.Actors.Runtime;
 using Microsoft.ServiceFabric.Actors.Client;
 using PrefabActor.Interfaces;
+using System.Fabric;
 
 namespace PrefabActor
 {
@@ -23,6 +24,13 @@ namespace PrefabActor
   {
     private const string MessagePrefix = "********* ";
 
+    // In order to achieve successfull reminder registration, we use timer to try it several times
+    // based on parameters defined here.
+    private IActorTimer _reminderRegistrationTimer;
+    private int _remiderRegistrationRetryCount = 0;
+    private const int ReminderRegistrationRetryIntervalMilliseconds = 10 * 1000; 
+    private const int MaxRemiderRegistrationRetryCount = 6;
+
     /// <summary>
     /// Initializes a new instance of PrefabActor
     /// </summary>
@@ -33,6 +41,7 @@ namespace PrefabActor
     {
     }
 
+
     public async Task MakeSureActorIsActivatedAsync()
     {
       await Task.Yield();
@@ -41,14 +50,23 @@ namespace PrefabActor
 
     protected override Task OnActivateAsync()
     {
-      try
+      // Start timer that will try to register the reminder every 10 seconds until it succeeds or 
+      // the specified number of retries is made.
+      this._reminderRegistrationTimer = this.RegisterTimer(
+        asyncCallback: state => this.RegisterWakeUpReminderTimerCallbackAsync(),
+        state: null,
+        dueTime: TimeSpan.FromMilliseconds(ReminderRegistrationRetryIntervalMilliseconds),
+        period: TimeSpan.FromMilliseconds(ReminderRegistrationRetryIntervalMilliseconds));
+
+      return Task.CompletedTask;
+    }
+
+
+    protected override Task OnDeactivateAsync()
+    {
+      if (this._reminderRegistrationTimer != null)
       {
-        this.RegisterReminderAsync(reminderName: "WakeUpActor", state: null, dueTime: TimeSpan.FromSeconds(30), period: TimeSpan.FromSeconds(10));
-        ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}{this.Id} Reminder successfully registered");
-      }
-      catch (Exception ex)
-      {
-        ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}{this.Id} RegisterReminderAsync failed: {ex.GetBaseException().Message}");
+        this.UnregisterTimer(this._reminderRegistrationTimer);
       }
 
       return Task.CompletedTask;
@@ -59,6 +77,38 @@ namespace PrefabActor
     {
       ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}{this.Id} received {reminderName} on {DateTimeOffset.Now:O}");
       return Task.CompletedTask;
+    }
+
+
+    private async Task RegisterWakeUpReminderTimerCallbackAsync()
+    {
+      try
+      {
+        this._remiderRegistrationRetryCount += 1;
+
+        await this.RegisterReminderAsync(reminderName: "WakeUpActor", state: null, dueTime: TimeSpan.FromSeconds(30), period: TimeSpan.FromSeconds(10));
+
+        // Reminder registration succeeded so we can now delete the timer.
+        this.DeleteReminderRegistrationTimer();
+
+        ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}{this.Id} Reminder successfully registered");
+      }
+      catch (FabricTransientException ex) // should be really ReminderLoadInProgressException, but it is internal in Microsoft.ServiceFabric.Actors.dll
+      {
+        // Reminder registration failed - if we have reached the maximum number of retries, we will destroy the timer.
+        if (this._remiderRegistrationRetryCount >= MaxRemiderRegistrationRetryCount)
+        {
+          this.DeleteReminderRegistrationTimer();
+        }
+        ActorEventSource.Current.ActorMessage(this, $"{MessagePrefix}{this.Id} RegisterReminderAsync failed: {ex.GetBaseException().Message}");
+      }
+    }
+
+
+    private void DeleteReminderRegistrationTimer()
+    {
+      this.UnregisterTimer(this._reminderRegistrationTimer);
+      this._reminderRegistrationTimer = null;
     }
   }
 }
