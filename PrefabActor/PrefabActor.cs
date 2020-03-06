@@ -64,11 +64,7 @@ namespace PrefabActor
 
     protected override Task OnDeactivateAsync()
     {
-      if (this._reminderRegistrationTimer != null)
-      {
-        this.UnregisterTimer(this._reminderRegistrationTimer);
-      }
-
+      this.DeleteReminderRegistrationTimer();
       return Task.CompletedTask;
     }
 
